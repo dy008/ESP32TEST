@@ -60,12 +60,13 @@ static BLERemoteCharacteristic* RpRemoteCharacteristic;
 #define READRPM 3
 #define READNONE 0
 static uint8_t ReadDATA = READNONE;    // "0":不做什么；“1”读取电压；“2”读取温度；“3”读取转速
-static char EngineRPM[5] = "9999";
-static char EngineTEMP[4] = "999";
+static uint16_t EngineRPM = 0;
+static uint8_t EngineTEMP = 0;
 static String IncomingBuffer = "";
 static  uint8_t ReadRPMCONT = 0;
 static  char run[] = {'|','/','-','\\'};
 static  float BatV = 0;
+static  uint8_t Data_Link = 0;
 
 const int wdtTimeout = 30000;  //time in ms to trigger the watchdog
 hw_timer_t *timer = NULL;
@@ -75,6 +76,9 @@ static void notifyCallback(
   uint8_t* pData,
   size_t length,
   bool isNotify) {
+    if (Data_Link++ > 3) {
+      Data_Link = 0;
+    }
     timerWrite(timer, 0); //reset timer (feed watchdog)
     IncomingBuffer = "";
     String stemp = "";
@@ -85,11 +89,11 @@ static void notifyCallback(
         for (int i = 0; i < length; i++)
           IncomingBuffer = IncomingBuffer + char(pData[i]);
         Serial.println(IncomingBuffer);
-        if ((IncomingBuffer.indexOf("NO DATA")) >= 0) { //如果OBD离线则持续读取电瓶电压并等待上线
+        if ((IncomingBuffer.indexOf("NO DATA")) >= 0) { //如果OBD离线则持续读取发动机温度并等待上线
           ReadDATA = READTEMP;
           return;
         }
-        if ((IncomingBuffer.indexOf("TO CONNECT")) >= 0) {  //如果没有搜索到正确的OBD协议则持续读取电瓶电压并等待
+        if ((IncomingBuffer.indexOf("TO CONNECT")) >= 0) {  //如果没有搜索到正确的OBD协议则持续读取发动机温度并等待s上线
           ReadDATA = READTEMP;
           return;
         }
@@ -97,21 +101,19 @@ static void notifyCallback(
           stemp = (IncomingBuffer.substring((IncomingBuffer.indexOf("41 0C")+6),
                   IncomingBuffer.indexOf("41 0C")+8))+IncomingBuffer.substring((IncomingBuffer.indexOf("41 0C")+9),
                   IncomingBuffer.indexOf("41 0C")+11);
-          itemp = strtol(stemp.c_str(),NULL,16);
-          snprintf(EngineRPM, 5,"%4d", itemp/4);
+          EngineRPM = strtol(stemp.c_str(),NULL,16) / 4;  // OBD转速数据需要除4才得到正确值
           if (ReadRPMCONT++ > 5) { //连续读取6次之后再读其他数据
-            ReadDATA = READRPM;
+            ReadDATA = READTEMP;
             ReadRPMCONT = 0;
           }else{
-            ReadDATA = READTEMP;
+            ReadDATA = READRPM;
           }
           return;
         }
         if ((IncomingBuffer.indexOf("41 05")) >= 0) {
           stemp = IncomingBuffer.substring((IncomingBuffer.indexOf("41 05")+6),
                   IncomingBuffer.indexOf("41 05")+8);
-          itemp = strtol(stemp.c_str(),NULL,16);
-          snprintf(EngineTEMP, 4,"%3d", itemp-40);
+          EngineTEMP = strtol(stemp.c_str(),NULL,16) - 40;  // OBD发动机温度数据需要减去40度才是正确值
           ReadDATA = READRPM;
           return;
         }
@@ -210,15 +212,17 @@ void u8g2_show() {
   u8g2.setFont(u8g2_font_profont12_tf);
   snprintf_P(stemp, sizeof(stemp), PSTR("%4.1fV"), BatV);
   u8g2.drawStr(0,11,stemp);
-  u8g2.drawStr(60,11,String(run[ReadDATA]).c_str());
+  u8g2.drawStr(60,11,String(run[Data_Link]).c_str());
   snprintf_P(stemp, sizeof(stemp), PSTR("%5.1f"), Oil_Temp);
   u8g2.drawStr(95,11,stemp);
-  u8g2.setFont(u8g2_font_profont22_tr);	// choose a suitable font
-  u8g2.drawStr(0,31,EngineTEMP);	// write something to the internal memory
+  u8g2.setFont(u8g2_font_profont22_tr);
+  snprintf_P(stemp, sizeof(stemp), PSTR("%3d"), EngineTEMP);
+  u8g2.drawStr(0,31,stemp);
   u8g2.drawCircle(39, 19, 2);
   u8g2.drawHLine(0,13,128);
   u8g2.drawVLine(45,13,19);
-  u8g2.drawStr(60,31,EngineRPM);
+  snprintf_P(stemp, sizeof(stemp), PSTR("%4d"), EngineRPM);
+  u8g2.drawStr(60,31,stemp);
   u8g2.setFont(u8g2_font_profont12_tf);
   u8g2.drawStr(109,31,"rpm");
 }
@@ -237,7 +241,7 @@ void u8g2_showTempVoltage(){
   u8g2.drawCircle(125, 5, 2);
 }
 
-float read_ADBATV(){
+float read_ADBATV(){  // 读取A03引脚上的电瓶电压，分压电阻为 10K-2K
   float average = 0;
   uint16_t sample;
 
@@ -258,9 +262,11 @@ void setup(void) {
   digitalWrite(23,HIGH);  // power on OLED
   Serial.begin(115200);
 
-  Oil_Temp = thermistor.read();   // Read temperature
+  for (size_t i = 0; i < 10; i++) {
+    Oil_Temp = thermistor.read();   // Read temperature
+    BatV = read_ADBATV(); // 读取电瓶电压
+  }
 
-  BatV = read_ADBATV();
 
   timer = timerBegin(0, 80, true);                  //timer 0, div 80
   timerAttachInterrupt(timer, &esp_restart, true);  //attach callback
@@ -320,11 +326,9 @@ void loop(void) {
   if (connected) {
     switch (ReadDATA) {
       case READTEMP: ReadDATA = READNONE;
-        delay(500);
         WpRemoteCharacteristic->writeValue("01051\r\n", newValue.length());
         break;
       case READRPM: ReadDATA = READNONE;
-        delay(300);
         WpRemoteCharacteristic->writeValue("010C1\r\n", newValue.length());
         break;
       default: ReadDATA = READNONE;
