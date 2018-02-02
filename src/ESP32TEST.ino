@@ -34,7 +34,7 @@ THERMISTOR thermistor(NTC_PIN,        // Analog pin
                       10000,          // Nominal resistance at 25 ºC
                       3950,           // thermistor's beta coefficient
                       10000,         // Value of the series resistor
-                      125);          // fix ADC value
+                      93);          // fix ADC value
 static float Oil_Temp =0;
 
 #include "BLEDevice.h"
@@ -213,7 +213,7 @@ void u8g2_show() {
   u8g2.drawStr(60,11,String(run[ReadDATA]).c_str());
   snprintf_P(stemp, sizeof(stemp), PSTR("%5.1f"), Oil_Temp);
   u8g2.drawStr(95,11,stemp);
-  u8g2.setFont(u8g2_font_profont22_tn);	// choose a suitable font
+  u8g2.setFont(u8g2_font_profont22_tr);	// choose a suitable font
   u8g2.drawStr(0,31,EngineTEMP);	// write something to the internal memory
   u8g2.drawCircle(39, 19, 2);
   u8g2.drawHLine(0,13,128);
@@ -227,13 +227,14 @@ void u8g2_showTempVoltage(){
   char stemp[20];
 
   u8g2.drawVLine(48,0,31);
-  u8g2.setFont(u8g2_font_profont22_tn);
+  u8g2.setFont(u8g2_font_profont22_tr);
   snprintf_P(stemp, sizeof(stemp), PSTR("%4.1f"), BatV);
   u8g2.drawStr(0,31,stemp);
-  u8g2.setFont(u8g2_font_profont29_tn);
+  u8g2.drawStr(36,14,"V");
+  u8g2.setFont(u8g2_font_profont29_tr);
   snprintf_P(stemp, sizeof(stemp), PSTR("%5.1f"), Oil_Temp);
   u8g2.drawStr(50,31,stemp);
-  u8g2.drawCircle(125, 7, 2);
+  u8g2.drawCircle(125, 5, 2);
 }
 
 float read_ADBATV(){
@@ -246,9 +247,7 @@ float read_ADBATV(){
     delay(10);
   }
   average /= 5;
-  average = average * 0.004872 + 0.44 ;
-  Serial.print("Average analog reading ");
-  Serial.println(average);
+  average = average * 0.004872 + 0.47 ;
   return (average);
 }
 
