@@ -68,7 +68,7 @@ static  char run[] = {'|','/','-','\\'};
 static  float BatV = 0;
 static  uint8_t Data_Link = 0;
 
-const int wdtTimeout = 30000;  //time in ms to trigger the watchdog
+const int wdtTimeout = 300000;  //time in ms to trigger the watchdog
 hw_timer_t *timer = NULL;
 
 static void notifyCallback(
