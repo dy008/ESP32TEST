@@ -64,7 +64,7 @@ static uint16_t EngineRPM = 0;
 static uint8_t EngineTEMP = 0;
 static String IncomingBuffer = "";
 static  uint8_t ReadRPMCONT = 0;
-static  char run[] = {'|','/','-','\\'};
+static  char run[] = {'|','/','-','\\','-'};
 static  float BatV = 0;
 static  uint8_t Data_Link = 0;
 
@@ -85,7 +85,6 @@ static void notifyCallback(
     uint16_t itemp = 0;
     digitalWrite(2, !digitalRead(2));
     if (length > 4) {
-        //Serial.print("Received Value: ");
         for (int i = 0; i < length; i++)
           IncomingBuffer = IncomingBuffer + char(pData[i]);
         Serial.println(IncomingBuffer);
@@ -93,7 +92,7 @@ static void notifyCallback(
           ReadDATA = READTEMP;
           return;
         }
-        if ((IncomingBuffer.indexOf("TO CONNECT")) >= 0) {  //如果没有搜索到正确的OBD协议则持续读取发动机温度并等待s上线
+        if ((IncomingBuffer.indexOf("TO CONNECT")) >= 0) {  //如果没有搜索到正确的OBD协议则持续读取发动机温度并等待上线
           ReadDATA = READTEMP;
           return;
         }
@@ -241,7 +240,7 @@ void u8g2_showTempVoltage(){
   u8g2.drawCircle(125, 5, 2);
 }
 
-float read_ADBATV(){  // 读取A03引脚上的电瓶电压，分压电阻为 10K-2K
+float read_ADBATV(){  // 读取A03引脚上的电瓶电压，分压电阻为 V12-->10K-->A03-->2K-->GND
   float average = 0;
   uint16_t sample;
 
@@ -288,7 +287,7 @@ void setup(void) {
   BLEScan* pBLEScan = BLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
   pBLEScan->setActiveScan(true);
-  pBLEScan->start(10);
+  pBLEScan->start(5);
 }
 
 void loop(void) {
@@ -337,11 +336,12 @@ void loop(void) {
     u8g2.clearBuffer();
     u8g2_show();
     u8g2.sendBuffer();
+    delay(300);
   }else{
     u8g2.clearBuffer();
     u8g2_showTempVoltage();
     u8g2.sendBuffer();
+    delay(500);
+    btStop();   // power off BLE Mode
   }
-    // deley between each page
-    //delay(500);
 }
