@@ -68,7 +68,7 @@ static  char run[] = {'|','/','-','\\','-'};
 static  float BatV = 0;
 static  uint8_t Data_Link = 0;
 
-const int wdtTimeout = 300000;  //time in ms to trigger the watchdog
+const int wdtTimeout = 100000;  //time in ms to trigger the watchdog
 hw_timer_t *timer = NULL;
 
 static void notifyCallback(
@@ -208,6 +208,9 @@ void u8g2_prepare(void) {
 void u8g2_show() {
   char stemp[20];
 
+  Oil_Temp = thermistor.read();   // Read temperature
+  BatV = read_ADBATV();
+  u8g2.clearBuffer();
   u8g2.setFont(u8g2_font_profont12_tf);
   snprintf_P(stemp, sizeof(stemp), PSTR("%4.1fV"), BatV);
   u8g2.drawStr(0,11,stemp);
@@ -224,11 +227,15 @@ void u8g2_show() {
   u8g2.drawStr(60,31,stemp);
   u8g2.setFont(u8g2_font_profont12_tf);
   u8g2.drawStr(109,31,"rpm");
+  u8g2.sendBuffer();
 }
 
 void u8g2_showTempVoltage(){
   char stemp[20];
 
+  Oil_Temp = thermistor.read();   // Read temperature
+  BatV = read_ADBATV();
+  u8g2.clearBuffer();
   u8g2.drawVLine(48,0,31);
   u8g2.setFont(u8g2_font_profont22_tr);
   snprintf_P(stemp, sizeof(stemp), PSTR("%4.1f"), BatV);
@@ -238,6 +245,7 @@ void u8g2_showTempVoltage(){
   snprintf_P(stemp, sizeof(stemp), PSTR("%5.1f"), Oil_Temp);
   u8g2.drawStr(50,31,stemp);
   u8g2.drawCircle(125, 5, 2);
+  u8g2.sendBuffer();
 }
 
 float read_ADBATV(){  // 读取A03引脚上的电瓶电压，分压电阻为 V12-->10K-->A03-->2K-->GND
@@ -261,12 +269,6 @@ void setup(void) {
   digitalWrite(23,HIGH);  // power on OLED
   Serial.begin(115200);
 
-  for (size_t i = 0; i < 10; i++) {
-    Oil_Temp = thermistor.read();   // Read temperature
-    BatV = read_ADBATV(); // 读取电瓶电压
-  }
-
-
   timer = timerBegin(0, 80, true);                  //timer 0, div 80
   timerAttachInterrupt(timer, &esp_restart, true);  //attach callback
   timerAlarmWrite(timer, wdtTimeout * 1000, false); //set time in us
@@ -274,9 +276,7 @@ void setup(void) {
 
   u8g2.begin();
   u8g2_prepare();
-  u8g2.clearBuffer();
   u8g2_showTempVoltage();
-  u8g2.sendBuffer();
 
   Serial.println("Starting Arduino BLE Client application...");
   BLEDevice::init("");
@@ -287,14 +287,13 @@ void setup(void) {
   BLEScan* pBLEScan = BLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
   pBLEScan->setActiveScan(true);
-  pBLEScan->start(5);
+  pBLEScan->start(3);
 }
 
 void loop(void) {
   String newValue = "";
 
-  Oil_Temp = thermistor.read();   // Read temperature
-  BatV = read_ADBATV();
+
 
     // If the flag "doConnect" is true then we have scanned for and found the desired
   // BLE Server with which we wish to connect.  Now we connect to it.  Once we are
@@ -333,15 +332,11 @@ void loop(void) {
       default: ReadDATA = READNONE;
         break;
     }
-    u8g2.clearBuffer();
     u8g2_show();
-    u8g2.sendBuffer();
     delay(300);
   }else{
-    u8g2.clearBuffer();
-    u8g2_showTempVoltage();
-    u8g2.sendBuffer();
-    delay(500);
     btStop();   // power off BLE Mode
+    u8g2_showTempVoltage();
+    delay(500);
   }
 }

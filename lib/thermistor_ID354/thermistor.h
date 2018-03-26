@@ -20,6 +20,7 @@
  *
  * Author: Daniel Berenguer
  * Creation date: 11/05/2014
+ * Modify by bill deng 01/02/2018
  */
 
 #ifndef _THERMISTOR_H

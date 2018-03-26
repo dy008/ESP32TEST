@@ -20,7 +20,7 @@
  *
  * Author: Daniel Berenguer
  * Creation date: 11/05/2014
- *
+ * Modify by bill deng 01/02/2018
  * This library simplifies the use of NTC thermistors by using Steinhart
  * simplified formula.
  * http://en.wikipedia.org/wiki/Steinhart%E2%80%93Hart_equation
@@ -30,7 +30,7 @@
  *
  * This library works only with the following circuit topology
  *
- * Vcc---NTC---ADC---SERIES_RESISTOR---GND
+ * Vcc---SERIES_RESISTOR---ADC--NTC---GND
  */
 
 #include "thermistor.h"
