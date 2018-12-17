@@ -72,7 +72,7 @@ static boolean GearOil_Temp_High = false;   // 变速箱油温过高
 static boolean EngOil_Temp_High = false;   // 发动机油温过高
 static boolean BatV_Low = false;   // 电池电压过低
 
-const int wdtTimeout = 600000;  //time in ms to trigger the watchdog
+const int wdtTimeout = 2000000;  //time in ms to trigger the watchdog To Reset!
 hw_timer_t *timer = NULL;
 
 void IRAM_ATTR onTimer(){
@@ -304,7 +304,7 @@ static const unsigned char u8g_logo_bits[] U8X8_PROGMEM = {
 
 
 // 递推平均滤波法（又称滑动平均滤波法）
-#define FILTER_N 5
+#define FILTER_N 4
 int filter_buf[FILTER_N + 1];
 float read_ADBATV(){  // 读取A03引脚上的电瓶电压，分压电阻为 V12-->10K-->A03-->2K-->GND
   int i;
@@ -328,7 +328,7 @@ void u8g2_show() {
 
   u8g2.clearBuffer();
   u8g2.setFont(u8g2_font_logisoso20_tr);
-  if (BatV_Low ) {
+  if (BatV_Low ) {    // 如果电压过低则闪烁
     if (Display_Flash) {
       snprintf_P(stemp, sizeof(stemp), PSTR("%s"), " ");
     } else {
@@ -339,7 +339,7 @@ void u8g2_show() {
   }
   u8g2.drawStr(0,21,stemp);
   u8g2.drawStr(55,21,String(run[Data_Link]).c_str());
-  if (GearOil_Temp_High ) {
+  if (GearOil_Temp_High ) {     // 如果变速箱温度过高则闪烁
     if (Display_Flash) {
       snprintf_P(stemp, sizeof(stemp), PSTR("%s"), " ");
     } else {
@@ -350,7 +350,7 @@ void u8g2_show() {
   }
   u8g2.drawStr(65,21,stemp);
   u8g2.setFont(u8g2_font_logisoso28_tn);
-  if (EngOil_Temp_High ) {
+  if (EngOil_Temp_High ) {      // 如果发动机温度过高则闪烁
     if (Display_Flash) {
       snprintf_P(stemp, sizeof(stemp), PSTR("%s"), " ");
     } else {
@@ -375,7 +375,7 @@ void u8g2_showTempVoltage(){
 
   u8g2.clearBuffer();
   u8g2.setFont(u8g2_font_freedoomr25_tn);
-  if (BatV_Low ) {
+  if (BatV_Low ) {      // 如果电压过低则闪烁
     if (Display_Flash) {
       snprintf_P(stemp, sizeof(stemp), PSTR("%s"), " ");
     } else {
@@ -388,7 +388,7 @@ void u8g2_showTempVoltage(){
   u8g2.setFont(u8g2_font_logisoso20_tr);
   u8g2.drawStr(99,26,"V");
   u8g2.setFont(u8g2_font_freedoomr25_tn);
-  if (GearOil_Temp_High ) {
+  if (GearOil_Temp_High ) {       // 如果变速箱温度过高则闪烁
     if (Display_Flash) {
       snprintf_P(stemp, sizeof(stemp), PSTR("%s"), " ");
     } else {
@@ -412,6 +412,8 @@ void setup(void) {
   timerAlarmWrite(timer, wdtTimeout * 1000, true);  //set time in us
   timerAlarmEnable(timer);                          //enable interrupt
 
+  BatV = read_ADBATV();   // 预先采集蓄电池电压
+
   u8g2.begin();
   u8g2_prepare();
   u8g2.clearBuffer();
@@ -420,7 +422,7 @@ void setup(void) {
   u8g2.sendBuffer();
   u8g2.setDrawColor(1);
 
-  BatV = read_ADBATV();
+
   // Start up the Dallas Temperature IC Control library
   sensors.begin();
   sensors.getAddress(tempDeviceAddress, 0);
@@ -474,7 +476,7 @@ void loop(void) {
   if (millis() - lastTempRequest >= delayInMillis) // waited long enough??
   {
     Oil_Temp = sensors.getTempCByIndex(0);   // Read temperature
-    if (Oil_Temp > 80) {    // 变速箱油温报警
+    if (Oil_Temp > 80) {    // 变速箱温度过高报警
       GearOil_Temp_High = true;
     } else {
       GearOil_Temp_High = false;
@@ -488,7 +490,7 @@ void loop(void) {
     } else {
       BatV_Low = false;
     }
-    if (EngineTEMP > 108) {   // 高于108度报警
+    if (EngineTEMP > 108) {   // 发动机温度高于108度报警
       EngOil_Temp_High = true;
     } else {
       EngOil_Temp_High = false;
