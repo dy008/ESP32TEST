@@ -27,16 +27,40 @@
 
 #include <OneWire.h>
 #include <DallasTemperature.h>
-// Data wire is plugged into port 25 on the Arduino
-#define ONE_WIRE_BUS 25
-#define FAN_RUN 26    // 风扇运行指示 高电平运行
+
+#define ONE_WIRE_BUS 25 // Data wire is plugged into port 25 on the Arduino
+#define READTEMP  1
+#define READRPM 3
+#define READNONE 0
+static uint8_t ReadDATA = READNONE;    // "0":不做什么；“1”读取温度；“3”读取转速
+static uint16_t EngineRPM = 0;
+static uint8_t EngineTEMP = 0;
+static String IncomingBuffer = "";
+static  uint8_t ReadRPMCONT = 0;
+static  char run[] = {'|','/','-','\\','-'};
+static  float BatV = 0;   // 电池的电压
+static  float FanV = 0;   // 散热风扇驱动电压
+static  uint8_t Data_Link = 0;  // 蓝牙适配器数据是否通信成功
+static boolean GearOil_Temp_High = false;   // 变速箱油温过高
+static boolean EngOil_Temp_High = false;   // 发动机油温过高
+static boolean BatV_Low = false;   // 电池电压过低
+static uint8_t FanState = 0;  // 散热风扇运行状态 0=停止，1=低速，2=高速
+static boolean Display_Flash = false;   // 显示闪烁标志
+
+unsigned long lastTempRequest = 0;
+int  delayInMillis = 0;
+static float Oil_Temp =0;
+
+#define FILTER_N 4  // 递推平均滤波法（又称滑动平均滤波法）计算次数
+#define BATTERY_INPUT A3  // 取电瓶电压，分压电阻为 VIN-->10K-->2K-->GND
+#define FAN_VOLTAGE A5 // 取散热风机的电压，分压电阻为 VIN-->20K-->5K-->GND
+int filter_buf_Battery[FILTER_N + 1];
+int filter_buf_Fan[FILTER_N + 1];
 // Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
 OneWire oneWire(ONE_WIRE_BUS);
 // Pass our oneWire reference to Dallas Temperature.
 DallasTemperature sensors(&oneWire);
-unsigned long lastTempRequest = 0;
-int  delayInMillis = 0;
-static float Oil_Temp =0;
+
 
 // Please UNCOMMENT one of the contructor lines below
 // U8g2 Contructor List (Frame Buffer)
@@ -45,9 +69,6 @@ static float Oil_Temp =0;
 U8G2_SSD1306_128X64_NONAME_F_4W_HW_SPI u8g2(U8G2_R0, /* cs=*/ U8X8_PIN_NONE, /* dc=*/ 16, /* reset=*/ 17); // node32s and OLED
 //U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 //U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ 22, /* data=*/ 21);
-
-static boolean Display_Flash = false;   // 显示闪烁标志
-
 #define u8g_logo_bits_width 128
 #define u8g_logo_bits_height 64
 static const unsigned char u8g_logo_bits[] U8X8_PROGMEM = {
@@ -154,21 +175,6 @@ static boolean connected = false;
 static BLERemoteCharacteristic* WpRemoteCharacteristic ;
 static BLERemoteCharacteristic* RpRemoteCharacteristic;
 static boolean BLE_OnTime_Scan = false;
-
-#define READTEMP  1
-#define READRPM 3
-#define READNONE 0
-static uint8_t ReadDATA = READNONE;    // "0":不做什么；“1”读取温度；“3”读取转速
-static uint16_t EngineRPM = 0;
-static uint8_t EngineTEMP = 0;
-static String IncomingBuffer = "";
-static  uint8_t ReadRPMCONT = 0;
-static  char run[] = {'|','/','-','\\','-'};
-static  float BatV = 0;
-static  uint8_t Data_Link = 0;
-static boolean GearOil_Temp_High = false;   // 变速箱油温过高
-static boolean EngOil_Temp_High = false;   // 发动机油温过高
-static boolean BatV_Low = false;   // 电池电压过低
 
 const int wdtTimeout = 2000000;  //time in ms to trigger the watchdog To Reset!
 hw_timer_t *timer = NULL;
@@ -300,19 +306,15 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
   } // onResult
 }; // MyAdvertisedDeviceCallbacks
 
-
-// 递推平均滤波法（又称滑动平均滤波法）
-#define FILTER_N 4
-int filter_buf[FILTER_N + 1];
-float read_ADBATV(){  // 读取A03引脚上的电瓶电压，分压电阻为 V12-->10K-->A03-->2K-->GND
+float read_ADV(int analogPin,int filter_buf[FILTER_N]){    // 递推平均值AD转换算法 返回电压值
   int i;
   int filter_sum = 0;
-  filter_buf[FILTER_N] = analogRead(A3);
+  filter_buf[FILTER_N] = analogRead(analogPin);
   for(i = 0; i < FILTER_N; i++) {
     filter_buf[i] = filter_buf[i + 1]; // 所有数据左移，低位仍掉
     filter_sum += filter_buf[i];
   }
-  return ((filter_sum / FILTER_N) * 0.004872 + 0.47 );
+  return ((filter_sum / FILTER_N));
 }
 
 void u8g2_prepare(void) {
@@ -399,8 +401,13 @@ void u8g2_showTempVoltage(){
   u8g2.drawStr(20,63,stemp);
   u8g2.drawCircle(109, 36, 3);
   u8g2.drawHLine(0,28,128);
-  if ((digitalRead(FAN_RUN) > 0) && Display_Flash) {
-    u8g2.drawDisc(12, 28, 12,U8G2_DRAW_ALL);
+  if ((FanState != 0) && Display_Flash) {
+    if (FanState == 1) {                    // fan run LOW
+      u8g2.drawCircle(12, 28, 12);
+    } else {                                // fan run HIGH
+      u8g2.drawDisc(12, 12, 10);
+      u8g2.drawDisc(12, 45, 10);
+    }
   }
   u8g2.sendBuffer();
 }
@@ -409,9 +416,8 @@ void setup(void) {
 
   Serial.begin(115200);
 
-  pinMode(FAN_RUN, INPUT);
-
-  BatV = read_ADBATV();   // 预先采集蓄电池电压
+  BatV = read_ADV(BATTERY_INPUT,filter_buf_Battery);   // 预先采集蓄电池电压
+  FanV = read_ADV(FAN_VOLTAGE,filter_buf_Fan);   // 预先采集散热风扇电压
 
   u8g2.begin();
   u8g2_prepare();
@@ -446,7 +452,31 @@ void setup(void) {
 void loop(void) {
   String newValue = "";
 
-    Display_Flash = !Display_Flash;   // 闪烁显示标志
+  Display_Flash = !Display_Flash;   // 闪烁显示标志
+
+  BatV = read_ADV(BATTERY_INPUT,filter_buf_Battery) * 0.00497;   // 采集蓄电池电压
+  FanV = read_ADV(FAN_VOLTAGE,filter_buf_Fan)* 0.0042;   // 采集散热风扇电压
+  if (BatV < 12) {    // 蓄电池电压过低报警
+    BatV_Low = true;
+  } else {
+    BatV_Low = false;
+  }
+  if (FanV < 5) {   // 散热器风扇运行状态检测
+    FanState = 0;   // fan stop
+  } else if (FanV > 10) {
+    FanState = 2;   // fan run HIGH
+  } else {
+    FanState = 1;  // fan run LOW
+  }
+  Serial.print(BatV);
+  Serial.print("   ");
+  Serial.println(FanV);
+
+  if (EngineTEMP > 108) {   // 发动机温度高于108度报警
+    EngOil_Temp_High = true;
+  } else {
+    EngOil_Temp_High = false;
+  }
 
   if (millis() - lastTempRequest >= delayInMillis) // waited long enough??
   {
@@ -458,18 +488,6 @@ void loop(void) {
     }
     sensors.requestTemperatures();
     lastTempRequest = millis();
-
-    BatV = read_ADBATV();
-    if (BatV < 12) {    // 蓄电池电压过低报警
-      BatV_Low = true;
-    } else {
-      BatV_Low = false;
-    }
-    if (EngineTEMP > 108) {   // 发动机温度高于108度报警
-      EngOil_Temp_High = true;
-    } else {
-      EngOil_Temp_High = false;
-    }
   }
 
   // If the flag "doConnect" is true then we have scanned for and found the desired
