@@ -29,6 +29,7 @@
 #include <DallasTemperature.h>
 
 #define ONE_WIRE_BUS 25 // Data wire is plugged into port 25 on the Arduino
+#define ONE_WIRE_PULLUP 26
 #define READTEMP  1
 #define READRPM 3
 #define READNONE 0
@@ -48,19 +49,18 @@ static uint8_t FanState = 0;  // 散热风扇运行状态 0=停止，1=低速，
 static boolean Display_Flash = false;   // 显示闪烁标志
 
 unsigned long lastTempRequest = 0;
-int  delayInMillis = 0;
+static int  delayInMillis = 0;
 static float Oil_Temp =0;
+// Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
+OneWire oneWire(ONE_WIRE_BUS);
+// Pass our oneWire reference to Dallas Temperature.
+DallasTemperature sensors(&oneWire);
 
 #define FILTER_N 4  // 递推平均滤波法（又称滑动平均滤波法）计算次数
 #define BATTERY_INPUT A3  // 取电瓶电压，分压电阻为 VIN-->10K-->2K-->GND
 #define FAN_VOLTAGE A5 // 取散热风机的电压，分压电阻为 VIN-->20K-->5K-->GND
 int filter_buf_Battery[FILTER_N + 1];
 int filter_buf_Fan[FILTER_N + 1];
-// Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
-OneWire oneWire(ONE_WIRE_BUS);
-// Pass our oneWire reference to Dallas Temperature.
-DallasTemperature sensors(&oneWire);
-
 
 // Please UNCOMMENT one of the contructor lines below
 // U8g2 Contructor List (Frame Buffer)
@@ -416,6 +416,9 @@ void setup(void) {
 
   Serial.begin(115200);
 
+  pinMode(ONE_WIRE_PULLUP, OUTPUT);
+  digitalWrite(ONE_WIRE_PULLUP, HIGH); // DS18B20上电
+
   BatV = read_ADV(BATTERY_INPUT,filter_buf_Battery);   // 预先采集蓄电池电压
   FanV = read_ADV(FAN_VOLTAGE,filter_buf_Fan);   // 预先采集散热风扇电压
 
@@ -427,13 +430,6 @@ void setup(void) {
   u8g2.sendBuffer();
   u8g2.setDrawColor(1);
 
-
-  // Start up the Dallas Temperature IC Control library
-  sensors.begin();
-  delayInMillis = 801;
-  sensors.requestTemperatures();
-  lastTempRequest = millis();
-
   Serial.println("Starting Arduino BLE Client application...");
   BLEDevice::init("");
 
@@ -443,10 +439,17 @@ void setup(void) {
   BLEScan* pBLEScan = BLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
   pBLEScan->setActiveScan(true);
-  pBLEScan->start(5);
+  pBLEScan->start(3);
   if (!doConnect) {   // 没有找到蓝牙OBD则关闭BLE电源
     btStop();
   }
+
+  // Start up the Dallas Temperature IC Control library
+  //sensors.setResolution(10);
+  sensors.begin();
+  delayInMillis = 750;
+  sensors.requestTemperatures();
+  lastTempRequest = millis();
 }
 
 void loop(void) {
@@ -481,10 +484,12 @@ void loop(void) {
   if (millis() - lastTempRequest >= delayInMillis) // waited long enough??
   {
     Oil_Temp = sensors.getTempCByIndex(0);   // Read temperature
-    if (Oil_Temp > 85) {    // 变速箱温度过高报警
-      GearOil_Temp_High = true;
-    } else {
-      GearOil_Temp_High = false;
+    if (Oil_Temp > -127) {    // 读取到有效温度
+      if (Oil_Temp > 85) {    // 变速箱温度过高报警
+        GearOil_Temp_High = true;
+      } else {
+        GearOil_Temp_High = false;
+      }
     }
     sensors.requestTemperatures();
     lastTempRequest = millis();
